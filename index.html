@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <title>Raspberry Pi – Realtime Dashboard</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
+    <style>
+        body {
+            background: #111;
+            color: #eee;
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            font-size: 80%;
+        }
+        select, button {
+            padding: 6px 10px;
+            margin: 10px 5px 20px 0;
+            background: #222;
+            color: #eee;
+            border: 1px solid #444;
+            border-radius: 4px;
+        }
+        button { cursor: pointer; }
+
+        canvas {
+            background: #222;
+            padding: 10px;
+            border-radius: 6px;
+        }
+
+        .resizable {
+            resize: both;
+            overflow: auto;
+            background: #222;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 40px;
+            min-width: 300px;
+            min-height: 200px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Realtime Hőmérséklet, Páratartalom és VPD</h1>
+
+<div id="timezone"></div>
+
+<label for="timeWindow">Időablak:</label>
+<select id="timeWindow">
+    <option value="720" selected>Utolsó 12 óra</option>
+    <option value="360">Utolsó 6 óra</option>
+    <option value="1440">Utolsó 24 óra</option>
+    <option value="2880">Utolsó 2 nap</option>
+    <option value="4320">Utolsó 3 nap</option>
+    <option value="7200">Utolsó 5 nap</option>
+    <option value="10080">Utolsó 1 hét</option>
+    <option value="43200">Utolsó 1 hónap</option>
+</select>
+
+<label for="refreshRate">Frissítés:</label>
+<select id="refreshRate">
+    <option value="0">Soha</option>
+    <option value="600" selected>10 perc</option>
+    <option value="1800">30 perc</option>
+    <option value="3600">1 óra</option>
+    <option value="7200">2 óra</option>
+</select>
+
+<button onclick="location.href='/averages'">Átlagok megtekintése</button>
+
+<h2>VPD (kPa)</h2>
+<button onclick="resetZoom(vpdChart)">Zoom visszaállítása</button>
+<div class="resizable">
+    <canvas id="vpdChart"></canvas>
+</div>
+
+<h2>Hőmérséklet (°C)</h2>
+<button onclick="resetZoom(tempChart)">Zoom visszaállítása</button>
+<div class="resizable">
+    <canvas id="tempChart"></canvas>
+</div>
+
+<h2>Páratartalom (%)</h2>
+<button onclick="resetZoom(humChart)">Zoom visszaállítása</button>
+<div class="resizable">
+    <canvas id="humChart"></canvas>
+</div>
+
+<script>
+let tempChart, humChart, vpdChart;
+let refreshTimer = null;
+
+let labels = [];
+let temps = [];
+let hums = [];
+let vpds = [];
+
+document.getElementById("timezone").innerText =
+    "Időzóna: " + Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+async function loadWindow(minutes) {
+    const r = await fetch(`/api/window?minutes=${minutes}`);
+    return await r.json();
+}
+
+function createChart(canvasId, label, color, isVPD=false) {
+    return new Chart(document.getElementById(canvasId), {
+        type: 'line',
+        data: { labels: [], datasets: [{
+            label,
+            data: [],
+            borderColor: color,
+            backgroundColor: color + "33",
+            tension: 0.2,
+            segment: isVPD ? {
+                borderColor: ctx => {
+                    const v = ctx.p1.parsed.y;
+                    if (v >= 0.2 && v < 0.4) return "#ffff66";
+                    if (v >= 0.4 && v < 0.8) return "#00ff00";
+                    if (v >= 0.8 && v < 1.2) return "#ccff66";
+                    if (v >= 1.2 && v < 1.5) return "#ff9900";
+                    return "red";
+                }
+            } : {}
+        }]},
+        options: {
+            maintainAspectRatio: false,
+            interaction: { mode: 'nearest', intersect: false },
+            plugins: {
+                tooltip: {
+                    enabled: true,
+                    callbacks: {
+                        label: function(ctx) {
+                            const i = ctx.dataIndex;
+                            return [
+                                `Hőmérséklet: ${temps[i]} °C`,
+                                `Páratartalom: ${hums[i]} %`,
+                                `VPD: ${vpds[i]} kPa`
+                            ];
+                        }
+                    }
+                },
+                legend: { labels: { color: "#ccc" } },
+                zoom: {
+                    zoom: { wheel:{enabled:false}, pinch:{enabled:true}, drag:{enabled:true}, mode:'x' },
+                    pan: { enabled:true, mode:'x' }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        tooltipFormat: 'yyyy-MM-dd HH:mm',
+                        displayFormats: { minute:'HH:mm', hour:'HH:mm', day:'yyyy-MM-dd' }
+                    },
+                    ticks: { color:"#ccc" }
+                },
+                y: { ticks: { color:"#ccc" } }
+            }
+        }
+    });
+}
+
+function resetZoom(chart) { chart.resetZoom(); }
+
+async function updateCharts() {
+    const minutes = document.getElementById("timeWindow").value;
+    const data = await loadWindow(minutes);
+
+    // FONTOS: globális tömbök frissítése
+    labels = data.map(x => new Date(x.time));
+    temps  = data.map(x => x.temperature);
+    hums   = data.map(x => x.humidity);
+    vpds   = data.map(x => x.vpd);
+
+    tempChart.data.labels = labels;
+    tempChart.data.datasets[0].data = temps;
+    tempChart.update('none');
+
+    humChart.data.labels = labels;
+    humChart.data.datasets[0].data = hums;
+    humChart.update('none');
+
+    vpdChart.data.labels = labels;
+    vpdChart.data.datasets[0].data = vpds;
+    vpdChart.update('none');
+}
+
+function updateRefreshRate() {
+    const rate = parseInt(document.getElementById("refreshRate").value);
+
+    if (refreshTimer) clearInterval(refreshTimer);
+
+    if (rate > 0) {
+        refreshTimer = setInterval(updateCharts, rate * 1000);
+    }
+}
+
+document.getElementById("timeWindow").addEventListener("change", updateCharts);
+
+tempChart = createChart("tempChart", "Hőmérséklet (°C)", "lime");
+humChart = createChart("humChart", "Páratartalom (%)", "cyan");
+vpdChart = createChart("vpdChart", "VPD (kPa)", "orange", true);
+
+updateCharts();
+updateRefreshRate();
+</script>
+
+</body>
+</html>
