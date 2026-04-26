@@ -40,8 +40,9 @@ An open-source IoT monitoring system designed for horticultural environments. Th
 
 ## Installation & Setup
 
+
 Clone the repository
-```bash
+bash
 git clone [https://github.com/honti2647/iot-agri-monitor.git](https://github.com/honti2647/iot-agri-monitor.git)
 cd iot-agri-monitor
 
