@@ -41,40 +41,52 @@ An open-source IoT monitoring system designed for horticultural environments. Th
 ## Installation & Setup
 
 
-Clone the repository
-bash
+**Clone the repository**
+
 git clone [https://github.com/honti2647/iot-agri-monitor.git](https://github.com/honti2647/iot-agri-monitor.git)
 cd iot-agri-monitor
 
 **Enable I2C on Raspberry Pi**
+
 The system relies on the I2C bus. Enable it via the configuration tool:
 
-Bash
+
 sudo raspi-config
-# Navigate to: Interface Options -> I2C -> Enable -> Yes
+Navigate to: Interface Options -> I2C -> Enable -> Yes
+
 
 Open telegraf.conf and update the [[outputs.influxdb_v2]] section with your server URL, organization, bucket, and token.
 
+
 **Usage**
+
 Starting the Monitoring Service
+
 To begin background data collection and local logging:
 
-Bash
 python3 rbtempmon.py
+
 Running the Local API
+
 To start the API server (default port usually 5000) for data access:
 
-Bash
 python3 rbtempapi.py
+
 Synchronizing Data to Server
+
 You can run the sync script manually or set it up as a cron job or systemd to push data to your remote InfluxDB instance:
 
-Bash
 python3 influx_sync_to_server.py
 
+
 **Data Flow**
+
 Data Collection: The system polls digital sensors via the I2C bus (i2cbus_sensors.py).
+
 Local Processing: The main service (rbtempmon.py) processes these readings and saves them to local logs.
+
 Local Distribution: Clients can query the rbtempapi.py endpoint for immediate, real-time status updates.
+
 Cloud Integration: The influx_sync script and telegraf ensure that all metrics are pushed to an InfluxDB database.
+
 Visualization: Connect a Grafana instance to your InfluxDB bucket to create professional agricultural dashboards.
